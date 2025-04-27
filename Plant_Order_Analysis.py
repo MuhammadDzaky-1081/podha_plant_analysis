@@ -61,7 +61,12 @@ rfm_data = filtered_df.groupby('CustID').agg(
 rfm_data['Recency'] = pd.to_numeric(rfm_data['Recency'], errors='coerce')
 rfm_data['Frequency'] = pd.to_numeric(rfm_data['Frequency'], errors='coerce')
 rfm_data['MonetaryValue'] = pd.to_numeric(rfm_data['MonetaryValue'], errors='coerce')
+
+# Drop rows with invalid or missing values
 rfm_data = rfm_data.dropna(subset=['Recency', 'Frequency', 'MonetaryValue'])
+
+# Ensure all values are non-negative
+rfm_data = rfm_data[(rfm_data['Recency'] >= 0) & (rfm_data['Frequency'] >= 0) & (rfm_data['MonetaryValue'] >= 0)]
 
 fig, ax = plt.subplots(figsize=(10, 6))
 sns.scatterplot(x='Recency', y='MonetaryValue', data=rfm_data, hue='Frequency', size='Frequency', ax=ax, palette="viridis")
