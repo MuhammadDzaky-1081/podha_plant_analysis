@@ -13,11 +13,13 @@ st.set_page_config(
 )
 
 # --- Load Data and Models ---
-@st.cache
+@st.cache_data
 def load_data():
-    return pd.read_csv("podha_plants_order.csv")
+    df = pd.read_csv("podha_plants_order.csv")
+    df['OrderDate'] = pd.to_datetime(df['OrderDate'], errors='coerce')  # Ensure proper datetime parsing
+    return df
 
-@st.cache(allow_output_mutation=True)
+@st.cache_resource
 def load_models():
     return pickle.load(open("model.pkl", "rb"))
 
