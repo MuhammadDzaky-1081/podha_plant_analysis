@@ -5,16 +5,16 @@ import seaborn as sns
 import pickle
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
-
 # Streamlit page configuration
 st.set_page_config(
     page_title="Podha Plants Order Analysis Dashboard",
     page_icon="🌱",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 # --- Data Loading and Validation ---
-@st.cache_data  # Cache the data loading for faster performance
+@st.cache_data
 def load_data():
     try:
         df = pd.read_csv("podha_plants_order.csv")
