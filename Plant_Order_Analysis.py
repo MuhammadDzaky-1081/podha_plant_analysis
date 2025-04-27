@@ -1,9 +1,7 @@
 import streamlit as st
 import pandas as pd
-import pickle
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datetime import datetime
 
 # --- Page Configuration ---
 st.set_page_config(
@@ -12,7 +10,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Load Data and Models ---
+# --- Load Data ---
 @st.cache_data  # Cache the data loading process
 def load_data():
     try:
@@ -37,11 +35,15 @@ if not df_orders.empty:
 
     if start_date > end_date:
         st.error("Start Date cannot be after End Date.")
-        filtered_df = pd.DataFrame()  # Empty DataFrame if dates are invalid
+        filtered_df = pd.DataFrame() 
     else:
+        # Convert start_date and end_date to Pandas Timestamp
+        start_date = pd.to_datetime(start_date)
+        end_date = pd.to_datetime(end_date)
+
         filtered_df = df_orders[
-            (df_orders['OrderDate'].dt.date >= start_date) & 
-            (df_orders['OrderDate'].dt.date <= end_date)
+            (df_orders['OrderDate'] >= start_date) & 
+            (df_orders['OrderDate'] <= end_date)
         ]
 
         # Product Category Filter (if column exists)
@@ -51,15 +53,16 @@ if not df_orders.empty:
                 "Product Categories", product_categories, default=product_categories
             )
             filtered_df = filtered_df[filtered_df['Product_Category'].isin(selected_categories)]
-
 else:
     st.warning("No data available to filter.")
-    filtered_df = pd.DataFrame()  # Empty DataFrame if no data loaded
+    filtered_df = pd.DataFrame() 
 
 
 # --- Title and Introduction ---
 st.title("🌱 Podha Plants Order Analysis Dashboard")
-
+st.markdown("This interactive dashboard provides insights into Podha Plants' order data, "
+            "enabling data-driven decisions for optimizing marketing campaigns, "
+            "increasing profitability, and mitigating fraud.")
 
 # --- Marketing Channel Performance ---
 st.subheader("📈 Marketing Channel Performance")
@@ -70,11 +73,10 @@ if not filtered_df.empty and 'AcquisitionSource' in filtered_df.columns:
     ax.set_title('Orders by Acquisition Channel')
     ax.set_xlabel('Acquisition Source')
     ax.set_ylabel('Number of Orders')
-    plt.xticks(rotation=45, ha='right')  # Rotate x-axis labels for better readability
+    plt.xticks(rotation=45, ha='right') 
     st.pyplot(fig)
 else:
     st.warning("No data available for Marketing Channel Performance or 'AcquisitionSource' column missing.")
-
 
 # --- Fraud Detection ---
 st.subheader("🔍 Fraud Detection")
@@ -89,8 +91,6 @@ if not filtered_df.empty and 'PaymentMethod' in filtered_df.columns:
 else:
     st.warning("No data available for Fraud Detection or 'PaymentMethod' column missing.")
 
-
-
 # --- Best-Selling Products ---
 st.subheader("💰 Best-Selling Products")
 if not filtered_df.empty and 'ProductSKU' in filtered_df.columns:
@@ -100,12 +100,10 @@ if not filtered_df.empty and 'ProductSKU' in filtered_df.columns:
     ax.set_title('Top 10 Best-Selling Products')
     ax.set_xlabel('Product SKU')
     ax.set_ylabel('Total Order Quantity')
-    plt.xticks(rotation=45, ha='right')  # Rotate x-axis labels
+    plt.xticks(rotation=45, ha='right')  
     st.pyplot(fig)
 else:
     st.warning("No data available for Best-Selling Products or 'ProductSKU' column missing.")
-
-
 
 # --- Order Value and Profit Analysis ---
 st.subheader("💸 Order Value and Profit Analysis")
@@ -113,7 +111,6 @@ if not filtered_df.empty and all(col in filtered_df.columns for col in ['Product
     filtered_df['OrderValue'] = filtered_df['ProductPrice'] * filtered_df['OrderQuantity']
     filtered_df['Profit'] = filtered_df['ProductPrice'] - filtered_df['ProductCost']
 
-    # Average Order Value and Total Profit
     avg_order_value = filtered_df['OrderValue'].mean()
     total_profit = filtered_df['Profit'].sum()
 
@@ -121,7 +118,6 @@ if not filtered_df.empty and all(col in filtered_df.columns for col in ['Product
     col1.metric("Average Order Value", f"${avg_order_value:.2f}")
     col2.metric("Total Profit", f"${total_profit:.2f}")
 
-    # Distribution of Order Values
     fig, ax = plt.subplots(figsize=(8, 6))
     sns.histplot(filtered_df['OrderValue'], kde=True, ax=ax)
     ax.set_title('Distribution of Order Values')
@@ -129,7 +125,6 @@ if not filtered_df.empty and all(col in filtered_df.columns for col in ['Product
     st.pyplot(fig)
 else:
     st.warning("No data available for Order Value and Profit Analysis or required columns are missing.")
-
 
 # --- Temporal Trends (Orders Over Time) ---
 st.subheader("📅 Temporal Trends in Orders")
