@@ -31,10 +31,9 @@ linear_model = models['linear_regression']
 rf_model = models['random_forest']
 
 # --- Sidebar Filters ---
-start_date = st.sidebar.date_input("Start Date", value=df_orders['OrderDate'].min().date())
+start_date = st.sidebar.date_input("Start Date", value=df_orders['OrderDate'].min())
+end_date = st.sidebar.date_input("End Date", value=df_orders['OrderDate'].max())
 filtered_df = df_orders[(df_orders['OrderDate'] >= start_date) & (df_orders['OrderDate'] <= end_date)]
-filtered_df = df_orders[(df_orders['OrderDate'] >= pd.Timestamp(start_date)) & (df_orders['OrderDate'] <= pd.Timestamp(end_date))]
-# The line is removed as it references an undefined variable
 
 product_categories = filtered_df['Product_Category'].unique()
 selected_categories = st.sidebar.multiselect("Product Categories", product_categories, default=product_categories)
