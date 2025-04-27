@@ -12,36 +12,28 @@ st.set_page_config(
 )
 
 # --- Data Loading and Validation ---
-@st.cache_data
+@st.cache_data  # Cache the data loading for faster performance
 def load_data():
     try:
         df = pd.read_csv("podha_plants_order.csv")
-        # Basic data validation: Check for required columns
-        required_columns = ['OrderID', 'OrderDate', 'CustID', 'ProductSKU', 'OrderQuantity', 'ProductPrice', 'ProductCost', 'AcquisitionSource', 'PaymentMethod', 'Fraud']
-        if not all(col in df.columns for col in required_columns):
-            raise ValueError("Missing required columns in the data file.")
-
-        # Data type conversions
+        # Basic data validation: Check for essential columns
+        essential_columns = ['OrderID', 'OrderDate', 'CustID', 'ProductSKU', 'OrderQuantity', 'ProductPrice', 'ProductCost', 'AcquisitionSource', 'PaymentMethod']
+        if not all(col in df.columns for col in essential_columns):
+            raise ValueError("Missing essential columns in the data file.")
+        
+        # Data type conversions (add more if needed based on your data)
         df['OrderDate'] = pd.to_datetime(df['OrderDate'], errors='coerce')
-        df['CustID'] = pd.to_numeric(df['CustID'], errors='coerce').astype('Int64')  # Handle potential non-numeric CustID
+        df['CustID'] = pd.to_numeric(df['CustID'], errors='coerce').astype('Int64')
         df['OrderQuantity'] = pd.to_numeric(df['OrderQuantity'], errors='coerce').astype('Int64')
         df['ProductPrice'] = pd.to_numeric(df['ProductPrice'], errors='coerce')
         df['ProductCost'] = pd.to_numeric(df['ProductCost'], errors='coerce')
-
+        
         return df
     except Exception as e:
         st.error(f"Error loading or validating data: {e}")
         return pd.DataFrame()
 
 df_orders = load_data()
-
-# --- Model Loading (Optional) ---
-try:
-    with open("model.pkl", "rb") as file:
-        models = pickle.load(file)
-except Exception as e:
-    st.warning(f"Could not load models from model.pkl: {e}")
-    models = None
 
 # --- Sidebar Filters ---
 st.sidebar.header("Filters")
@@ -66,46 +58,53 @@ else:
 
 # --- Title and Introduction ---
 st.title("🌱 Podha Plants Order Analysis Dashboard")
-st.markdown("This dashboard provides insights into your order data.")
+st.markdown("This dashboard provides data-driven insights to optimize your business.")
 
-# --- Visualizations and Insights ---
-def create_visualization(title, data, x_col, y_col, plot_type='bar', **kwargs):
-    if not data.empty:
-        st.subheader(title)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        if plot_type == 'bar':
-            sns.barplot(x=x_col, y=y_col, data=data, ax=ax, **kwargs)
-            plt.xticks(rotation=45, ha='right')
-        elif plot_type == 'hist':
-            sns.histplot(data[x_col], kde=True, ax=ax, **kwargs)
-        elif plot_type == 'line':
-            ax.plot(data[x_col], data[y_col], **kwargs)
-            plt.xticks(rotation=45, ha='right')
-        else:
-            st.warning(f"Unsupported plot type: {plot_type}")
-            return
-        
-        ax.set_title(title)
-        ax.set_xlabel(x_col)
-        ax.set_ylabel(y_col)
+# --- Insights and Actionable Insights ---
+# 1. Top Marketing Channels (Pareto Principle - Focus on the most impactful)
+if not filtered_df.empty and 'AcquisitionSource' in filtered_df.columns:
+    st.subheader("Top Marketing Channels")
+    top_channels = filtered_df['AcquisitionSource'].value_counts().head(5)  # Top 5 channels
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.barplot(x=top_channels.index, y=top_channels.values, ax=ax)
+    ax.set_title('Orders by Acquisition Channel (Top 5)')
+    ax.set_xlabel('Acquisition Source')
+    ax.set_ylabel('Number of Orders')
+    plt.xticks(rotation=45, ha='right')
+    st.pyplot(fig)
+    st.markdown("**Actionable Insight:** Focus marketing efforts on the top performing channels to maximize customer acquisition.")
+
+# 2. Fraud Detection by Payment Method
+if not filtered_df.empty and 'PaymentMethod' in filtered_df.columns:
+    st.subheader("Fraud Detection by Payment Method")
+    fraud_by_payment = filtered_df[filtered_df['Fraud'] == 'Fraud']['PaymentMethod'].value_counts()
+    if not fraud_by_payment.empty:
+        fig, ax = plt.subplots(figsize=(8, 6))
+        sns.barplot(x=fraud_by_payment.index, y=fraud_by_payment.values, ax=ax)
+        ax.set_title('Fraudulent Orders by Payment Method')
+        ax.set_xlabel('Payment Method')
+        ax.set_ylabel('Number of Fraudulent Orders')
         st.pyplot(fig)
+        st.markdown("**Actionable Insight:** Investigate and implement security measures for payment methods with high fraud rates.")
     else:
-        st.warning(f"No data available for {title}")
+        st.info("No fraudulent orders found in the selected data.")
 
-# --- Marketing Channel Performance ---
-create_visualization('Orders by Acquisition Channel', filtered_df, 'AcquisitionSource', 'OrderID', 
-                    plot_type='bar', estimator=len)  
+# 3. Best-Selling Products (Pareto Principle - Focus on top performers)
+if not filtered_df.empty and 'ProductSKU' in filtered_df.columns:
+    st.subheader("Best-Selling Products")
+    top_products = filtered_df.groupby('ProductSKU')['OrderQuantity'].sum().sort_values(ascending=False).head(10)
+    fig, ax = plt.subplots(figsize=(12, 6))
+    sns.barplot(x=top_products.index, y=top_products.values, ax=ax)
+    ax.set_title('Top 10 Best-Selling Products')
+    ax.set_xlabel('Product SKU')
+    ax.set_ylabel('Total Order Quantity')
+    plt.xticks(rotation=45, ha='right')
+    st.pyplot(fig)
+    st.markdown("**Actionable Insight:** Ensure sufficient inventory of top-selling products and consider promotional strategies to further boost sales.")
 
-# --- Fraud Detection ---
-create_visualization('Fraudulent Orders by Payment Method', filtered_df, 'PaymentMethod', 'OrderID', 
-                    plot_type='bar', estimator=len)
-
-# --- Best-Selling Products ---
-create_visualization('Top 10 Best-Selling Products', filtered_df.groupby('ProductSKU')['OrderQuantity'].sum().sort_values(ascending=False).head(10).reset_index(),
-                     'ProductSKU', 'OrderQuantity', plot_type='bar')
-
-# --- Order Value and Profit Analysis ---
+# 4. Order Value and Profit Analysis
 if not filtered_df.empty and all(col in filtered_df.columns for col in ['ProductPrice', 'ProductCost', 'OrderQuantity']):
+    st.subheader("Order Value and Profit Analysis")
     filtered_df['OrderValue'] = filtered_df['ProductPrice'] * filtered_df['OrderQuantity']
     filtered_df['Profit'] = filtered_df['ProductPrice'] - filtered_df['ProductCost']
 
@@ -116,8 +115,22 @@ if not filtered_df.empty and all(col in filtered_df.columns for col in ['Product
     col1.metric("Average Order Value", f"${avg_order_value:.2f}")
     col2.metric("Total Profit", f"${total_profit:.2f}")
 
-    create_visualization('Distribution of Order Values', filtered_df, 'OrderValue', None, plot_type='hist')
+    fig, ax = plt.subplots(figsize=(8, 6))
+    sns.histplot(filtered_df['OrderValue'], kde=True, ax=ax)
+    ax.set_title('Distribution of Order Values')
+    ax.set_xlabel('Order Value')
+    st.pyplot(fig)
+    st.markdown("**Actionable Insight:** Identify opportunities to increase average order value and optimize pricing strategies for higher profitability.")
 
-# --- Temporal Trends (Orders Over Time) ---
-create_visualization('Orders Over Time', filtered_df.groupby(filtered_df['OrderDate'].dt.date)['OrderID'].count().reset_index(),
-                     'OrderDate', 'OrderID', plot_type='line')
+# 5. Temporal Trends (Orders Over Time)
+if not filtered_df.empty and 'OrderDate' in filtered_df.columns:
+    st.subheader("Temporal Trends in Orders")
+    orders_over_time = filtered_df.groupby(filtered_df['OrderDate'].dt.date)['OrderID'].count()
+    fig, ax = plt.subplots(figsize=(12, 6))
+    ax.plot(orders_over_time.index, orders_over_time.values)
+    ax.set_title('Orders Over Time')
+    ax.set_xlabel('Order Date')
+    ax.set_ylabel('Number of Orders')
+    plt.xticks(rotation=45, ha='right')
+    st.pyplot(fig)
+    st.markdown("**Actionable Insight:** Analyze trends to identify peak seasons, potential anomalies, and forecast future demand.")
