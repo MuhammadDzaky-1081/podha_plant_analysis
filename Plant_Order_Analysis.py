@@ -17,6 +17,7 @@ st.set_page_config(
 def load_data():
     df = pd.read_csv("podha_plants_order.csv")
     df['OrderDate'] = pd.to_datetime(df['OrderDate'], errors='coerce')  # Ensure proper datetime parsing
+    df = df.dropna(subset=['OrderDate'])  # Drop rows with invalid or missing dates
     return df
 
 @st.cache_resource
@@ -29,10 +30,10 @@ linear_model = models['linear_regression']
 rf_model = models['random_forest']
 
 # --- Sidebar Filters ---
-st.sidebar.header("Filters")
-start_date = st.sidebar.date_input("Start Date", value=pd.to_datetime(df_orders['OrderDate'].min()))
-end_date = st.sidebar.date_input("End Date", value=pd.to_datetime(df_orders['OrderDate'].max()))
-filtered_df = df_orders[(pd.to_datetime(df_orders['OrderDate']) >= start_date) & (pd.to_datetime(df_orders['OrderDate']) <= end_date)]
+start_date = st.sidebar.date_input("Start Date", value=df_orders['OrderDate'].min().date())
+end_date = st.sidebar.date_input("End Date", value=df_orders['OrderDate'].max().date())
+filtered_df = df_orders[(df_orders['OrderDate'] >= pd.Timestamp(start_date)) & (df_orders['OrderDate'] <= pd.Timestamp(end_date))]
+filtered_df = valid_orders[(valid_orders['OrderDate'] >= pd.Timestamp(start_date)) & (valid_orders['OrderDate'] <= pd.Timestamp(end_date))]
 
 product_categories = filtered_df['Product_Category'].unique()
 selected_categories = st.sidebar.multiselect("Product Categories", product_categories, default=product_categories)
