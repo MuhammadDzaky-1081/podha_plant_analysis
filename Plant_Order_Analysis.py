@@ -1,7 +1,8 @@
 """
-Streamlit Dashboard Podha Plants Analytics
+Streamlit Dashboard: Podha Plants Analytics
 Dependencies: streamlit, pandas, numpy, scikit-learn, seaborn, matplotlib
 """
+
 import pickle
 import pandas as pd
 import numpy as np
@@ -24,10 +25,10 @@ def load_data(path: str = 'podha_plants_order.csv') -> pd.DataFrame:
             df[col] = pd.to_datetime(df[col], errors='coerce')
     return df
 
-@st.cache_data
+@st.cache_resource
 def load_model(path: str = 'model.pkl'):
     """
-    Load ML model from pickle.
+    Load ML model from pickle file.
     """
     with open(path, 'rb') as f:
         model = pickle.load(f)
@@ -39,16 +40,18 @@ def load_model(path: str = 'model.pkl'):
 
 def page_marketing(df: pd.DataFrame):
     st.header("📈 Analisis Kampanye Pemasaran")
-    required = {'campaign', 'cost', 'revenue', 'order_id'}
-    if not required.issubset(df.columns):
-        st.warning(f"Dataset perlu kolom: {', '.join(required)}.")
+    req_cols = {'campaign', 'cost', 'revenue', 'order_id'}
+    if not req_cols.issubset(df.columns):
+        st.warning(f"Dataset perlu kolom: {', '.join(req_cols)}")
         return
 
     summary = (
         df.groupby('campaign')
-          .agg(total_cost=('cost', 'sum'),
-               total_revenue=('revenue', 'sum'),
-               orders=('order_id', 'nunique'))
+          .agg(
+              total_cost=('cost', 'sum'),
+              total_revenue=('revenue', 'sum'),
+              orders=('order_id', 'nunique')
+          )
           .reset_index()
     )
     summary['profit'] = summary['total_revenue'] - summary['total_cost']
@@ -57,17 +60,16 @@ def page_marketing(df: pd.DataFrame):
     st.subheader("Ringkasan Kampanye")
     st.dataframe(summary)
 
+    # Plot ROI & Orders
     fig, ax = plt.subplots()
-    melted = summary.melt(id_vars='campaign', value_vars=['ROI', 'orders'], var_name='Metric')
-    sns.barplot(data=melted, x='campaign', y='value', hue='Metric', ax=ax)
+    data_melt = summary.melt(id_vars='campaign', value_vars=['ROI', 'orders'], var_name='Metric')
+    sns.barplot(x='campaign', y='value', hue='Metric', data=data_melt, ax=ax)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
     st.pyplot(fig)
-
 
 def page_product_customer(df: pd.DataFrame):
     st.header("🛒 Segmentasi Produk & Pelanggan")
 
-    # Top 10 produk
     if 'product' in df.columns:
         top = df['product'].value_counts().nlargest(10)
         st.subheader("Top 10 Produk")
@@ -78,41 +80,35 @@ def page_product_customer(df: pd.DataFrame):
     else:
         st.warning("Kolom 'product' tidak ditemukan.")
 
-    # KMeans clustering pelanggan
     if {'customer_id', 'order_value'}.issubset(df.columns):
-        cust = (
-            df.groupby('customer_id')
-              .agg(orders=('order_id', 'nunique'),
-                   total_value=('order_value', 'sum'))
+        cust = df.groupby('customer_id').agg(
+            orders=('order_id', 'nunique'),
+            total_value=('order_value', 'sum')
         )
-        kmeans = KMeans(n_clusters=3, random_state=0)
+        kmeans = KMeans(n_clusters=3, random_state=42)
         cust['cluster'] = kmeans.fit_predict(cust)
 
         st.subheader("Cluster Pelanggan (KMeans)")
         fig, ax = plt.subplots()
-        sns.scatterplot(data=cust.reset_index(), x='orders', y='total_value', hue='cluster', palette='deep', ax=ax)
+        sns.scatterplot(x='orders', y='total_value', hue='cluster', data=cust.reset_index(), palette='deep', ax=ax)
         ax.set_xlabel('Jumlah Orders')
         ax.set_ylabel('Total Nilai Order')
         st.pyplot(fig)
     else:
         st.warning("Kolom 'customer_id' atau 'order_value' hilang.")
 
-
 def page_finance_risk(df: pd.DataFrame):
     st.header("💰 Analisis Keuangan & Risiko")
 
-    # Total revenue
     if 'order_value' in df.columns:
         total = df['order_value'].sum()
         st.metric("Total Revenue", f"Rp{total:,.0f}")
 
-    # Fail rate pembayaran
     if 'payment_status' in df.columns:
-        fail = df[df['payment_status'] != 'success'].shape[0]
-        rate = fail / df.shape[0] * 100
+        failed = df[df['payment_status'] != 'success']
+        rate = len(failed) / len(df) * 100
         st.metric("Gagal Pembayaran (%)", f"{rate:.2f}%")
 
-    # Pie chart pendapatan per layanan
     if {'service', 'order_value'}.issubset(df.columns):
         svc = df.groupby('service')['order_value'].sum()
         st.subheader("Pendapatan per Layanan")
@@ -132,21 +128,19 @@ def page_strategy_forecasting(df: pd.DataFrame):
         return
     date_col = date_cols[0]
 
-    ts = df[[date_col, 'order_value']].dropna()
-    ts = ts.set_index(date_col).resample('M').sum()
-
+    ts = df[[date_col, 'order_value']].dropna().set_index(date_col).resample('M').sum()
     last_year = ts['order_value'].last('12M')
     mean_val = last_year.mean()
     future_idx = pd.date_range(start=ts.index.max() + pd.offsets.MonthBegin(), periods=12, freq='M')
     forecast = pd.Series([mean_val]*12, index=future_idx)
 
     combined = pd.concat([ts['order_value'], forecast.rename('Forecast')], axis=1)
+    combined.columns = ['Actual', 'Forecast']
 
     fig, ax = plt.subplots()
     combined.plot(ax=ax)
     ax.set_ylabel('Order Value')
     st.pyplot(fig)
-
 
 def page_model_insights(model):
     st.header("🔍 Feature Importance")
@@ -157,7 +151,6 @@ def page_model_insights(model):
         st.pyplot(fig)
     else:
         st.info("Model tidak memiliki attribute feature_importances_.")
-
 
 def page_about():
     st.header("ℹ️ Tentang")
@@ -170,7 +163,7 @@ def page_about():
     )
 
 # ------------------
-# 3. Main
+# 3. Main Application
 # ------------------
 
 def main():
@@ -188,10 +181,11 @@ def main():
     }
 
     choice = st.sidebar.radio('Pilih Halaman', list(pages.keys()))
-    if choice == 'Model Insights' or choice == 'About':
-        pages[choice]()
-    else:
+    # Call pages; pages requiring df pass df, others are no-arg
+    if choice in ['Marketing Campaigns', 'Product & Customer', 'Finance & Risk', 'Strategy Forecasting']:
         pages[choice](df)
+    else:
+        pages[choice]()
 
 if __name__ == '__main__':
     main()
