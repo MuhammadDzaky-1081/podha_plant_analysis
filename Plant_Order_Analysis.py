@@ -17,9 +17,14 @@ st.set_page_config(
 def load_data():
     try:
         df = pd.read_csv("podha_plants_order.csv")
-        df['OrderDate'] = pd.to_datetime(df['OrderDate'], errors='coerce')  # Ensure proper datetime parsing
-        df = df.dropna(subset=['OrderDate'])  # Drop rows with invalid or missing dates
-        df['OrderDate'] = df['OrderDate'].dt.date  # Convert to date format for compatibility with date_input
+        df['OrderDate'] = pd.to_datetime(df['OrderDate'], errors='coerce')
+        df = df.dropna(subset=['OrderDate'])
+        df['OrderDate'] = df['OrderDate'].dt.date  # use date format for date_input
+        
+        # Ensure that ProductPrice is numeric
+        df['ProductPrice'] = pd.to_numeric(df['ProductPrice'], errors='coerce')
+        df = df.dropna(subset=['ProductPrice'])
+        
         return df
     except Exception as e:
         st.error(f"Error loading data: {e}")
@@ -49,7 +54,6 @@ if not df_orders.empty:
         st.sidebar.error("Start Date cannot be after End Date.")
     else:
         filtered_df = df_orders[(df_orders['OrderDate'] >= start_date) & (df_orders['OrderDate'] <= end_date)]
-
         product_categories = filtered_df['Product_Category'].unique()
         selected_categories = st.sidebar.multiselect("Product Categories", product_categories, default=product_categories)
         filtered_df = filtered_df[filtered_df['Product_Category'].isin(selected_categories)]
@@ -74,8 +78,14 @@ if not filtered_df.empty:
             MonetaryValue=('ProductPrice', 'sum')
         ).reset_index()
 
-        # Ensure valid numeric values
-        rfm_data = rfm_data[(rfm_data['Recency'] >= 0) & (rfm_data['Frequency'] >= 0) & (rfm_data['MonetaryValue'] >= 0)]
+        # Ensure valid numeric values by explicitly converting columns
+        rfm_data['Recency'] = pd.to_numeric(rfm_data['Recency'], errors='coerce')
+        rfm_data['Frequency'] = pd.to_numeric(rfm_data['Frequency'], errors='coerce')
+        rfm_data['MonetaryValue'] = pd.to_numeric(rfm_data['MonetaryValue'], errors='coerce')
+        rfm_data = rfm_data.dropna(subset=['Recency', 'Frequency', 'MonetaryValue'])
+        rfm_data = rfm_data[(rfm_data['Recency'] >= 0) & 
+                            (rfm_data['Frequency'] >= 0) & 
+                            (rfm_data['MonetaryValue'] >= 0)]
 
         if not rfm_data.empty:
             fig, ax = plt.subplots(figsize=(10, 6))
