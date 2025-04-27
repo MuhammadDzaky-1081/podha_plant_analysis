@@ -57,6 +57,9 @@ rfm_data = filtered_df.groupby('CustID').agg(
     MonetaryValue=('ProductPrice', 'sum')
 ).reset_index()
 
+# Drop rows with missing or invalid values
+rfm_data = rfm_data.dropna()
+
 fig, ax = plt.subplots(figsize=(10, 6))
 sns.scatterplot(x='Recency', y='MonetaryValue', data=rfm_data, hue='Frequency', size='Frequency', ax=ax, palette="viridis")
 ax.set_title('RFM Customer Segmentation')
