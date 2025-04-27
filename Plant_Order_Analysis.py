@@ -68,10 +68,14 @@ rfm_data = rfm_data.dropna(subset=['Recency', 'Frequency', 'MonetaryValue'])
 # Ensure all values are non-negative
 rfm_data = rfm_data[(rfm_data['Recency'] >= 0) & (rfm_data['Frequency'] >= 0) & (rfm_data['MonetaryValue'] >= 0)]
 
-fig, ax = plt.subplots(figsize=(10, 6))
-sns.scatterplot(x='Recency', y='MonetaryValue', data=rfm_data, hue='Frequency', size='Frequency', ax=ax, palette="viridis")
-ax.set_title('RFM Customer Segmentation')
-st.pyplot(fig)
+# Check if the filtered data is not empty before plotting
+if not rfm_data.empty:
+    fig, ax = plt.subplots(figsize=(10, 6))
+    sns.scatterplot(x='Recency', y='MonetaryValue', data=rfm_data, hue='Frequency', size='Frequency', ax=ax, palette="viridis")
+    ax.set_title('RFM Customer Segmentation')
+    st.pyplot(fig)
+else:
+    st.warning("No valid data available for RFM Customer Segmentation.")
 
 st.markdown("""
 **Business Value:** Identify high-value customers (high frequency, high monetary value, low recency) for targeted marketing and retention efforts.
