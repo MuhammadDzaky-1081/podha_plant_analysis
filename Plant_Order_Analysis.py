@@ -58,6 +58,9 @@ rfm_data = filtered_df.groupby('CustID').agg(
 ).reset_index()
 
 # Ensure all columns used in the plot contain valid numeric values
+rfm_data['Recency'] = pd.to_numeric(rfm_data['Recency'], errors='coerce')
+rfm_data['Frequency'] = pd.to_numeric(rfm_data['Frequency'], errors='coerce')
+rfm_data['MonetaryValue'] = pd.to_numeric(rfm_data['MonetaryValue'], errors='coerce')
 rfm_data = rfm_data.dropna(subset=['Recency', 'Frequency', 'MonetaryValue'])
 
 fig, ax = plt.subplots(figsize=(10, 6))
