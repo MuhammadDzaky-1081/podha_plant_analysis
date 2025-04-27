@@ -1,206 +1,180 @@
-import streamlit as st
-import pandas as pd
+"""
+Streamlit Dashboard Podha Plants Analytics
+Dependencies: streamlit, pandas, numpy, scikit-learn, seaborn, matplotlib
+"""
 import pickle
+import pandas as pd
+import numpy as np
+import streamlit as st
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datetime import datetime
+from sklearn.cluster import KMeans
 
-# --- Page Configuration ---
-st.set_page_config(
-    page_title="Podha Plants Order Analysis Dashboard",
-    page_icon="🌱",
-    layout="wide"
-)
-
-# --- Load Data and Models ---
+# ------------------
+# 1. Data & Model Loaders
+# ------------------
 @st.cache_data
-def load_data():
-    try:
-        df = pd.read_csv("podha_plants_order.csv")
-        df['OrderDate'] = pd.to_datetime(df['OrderDate'], errors='coerce')
-        df = df.dropna(subset=['OrderDate'])
-        df['OrderDate'] = df['OrderDate'].dt.date  # use date format for date_input
-        
-        # Ensure that ProductPrice is numeric
-        df['ProductPrice'] = pd.to_numeric(df['ProductPrice'], errors='coerce')
-        df = df.dropna(subset=['ProductPrice'])
-        
-        return df
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return pd.DataFrame()
+def load_data(path: str = 'podha_plants_order.csv') -> pd.DataFrame:
+    """
+    Load dataset and parse date columns.
+    """
+    df = pd.read_csv(path)
+    for col in df.columns:
+        if 'date' in col.lower():
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+    return df
 
-@st.cache_resource
-def load_models():
-    try:
-        return pickle.load(open("model.pkl", "rb"))
-    except Exception as e:
-        st.error(f"Error loading models: {e}")
-        return None
+@st.cache_data
+def load_model(path: str = 'model.pkl'):
+    """
+    Load ML model from pickle.
+    """
+    with open(path, 'rb') as f:
+        model = pickle.load(f)
+    return model
 
-df_orders = load_data()
-models = load_models()
+# ------------------
+# 2. Page Functions
+# ------------------
 
-if models:
-    linear_model = models.get('linear_regression')
-    rf_model = models.get('random_forest')
+def page_marketing(df: pd.DataFrame):
+    st.header("📈 Analisis Kampanye Pemasaran")
+    req = {'campaign','cost','revenue','order_id'}
+    if not req.issubset(df.columns):
+        st.warning(f"Dataset perlu kolom: {req}.")
+        return
 
-# --- Sidebar Filters ---
-st.sidebar.header("Filters")
-if not df_orders.empty:
-    start_date = st.sidebar.date_input("Start Date", value=df_orders['OrderDate'].min())
-    end_date = st.sidebar.date_input("End Date", value=df_orders['OrderDate'].max())
-    if start_date > end_date:
-        st.sidebar.error("Start Date cannot be after End Date.")
+    summary = df.groupby('campaign').agg(
+        total_cost=('cost','sum'),
+        total_revenue=('revenue','sum'),
+        orders=('order_id','nunique')
+    ).reset_index()
+    summary['profit'] = summary['total_revenue'] - summary['total_cost']
+    summary['ROI'] = summary['profit'] / summary['total_cost']
+
+    st.subheader("Ringkasan Kampanye")
+    st.dataframe(summary)
+
+    fig, ax = plt.subplots()
+    sns.barplot(data=summary.melt(id_vars='campaign', value_vars=['ROI','orders']),
+                x='campaign', y='value', hue='variable', ax=ax)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
+    st.pyplot(fig)
+
+
+def page_product_customer(df: pd.DataFrame):
+    st.header("🛒 Segmentasi Produk & Pelanggan")
+    if 'product' in df.columns:
+        top = df['product'].value_counts().nlargest(10)
+        st.subheader("Top 10 Produk")
+        fig, ax = plt.subplots()
+        sns.barplot(x=top.values, y=top.index, ax=ax)
+        st.pyplot(fig)
     else:
-        filtered_df = df_orders[(df_orders['OrderDate'] >= start_date) & (df_orders['OrderDate'] <= end_date)]
-        product_categories = filtered_df['Product_Category'].unique()
-        selected_categories = st.sidebar.multiselect("Product Categories", product_categories, default=product_categories)
-        filtered_df = filtered_df[filtered_df['Product_Category'].isin(selected_categories)]
-else:
-    st.warning("No data available to filter.")
-    filtered_df = pd.DataFrame()
+        st.warning("Kolom 'product' tidak ada.")
 
-# --- Title and Introduction ---
-st.title("🌱 Podha Plants Order Analysis Dashboard")
-st.markdown("""
-This interactive dashboard provides insights into Podha Plants' order data, enabling data-driven decisions for optimizing marketing campaigns, increasing profitability, and mitigating fraud.
-""")
+    if {'customer_id','order_value'}.issubset(df.columns):
+        cust = df.groupby('customer_id').agg(
+            orders=('order_id','nunique'),
+            total_value=('order_value','sum')
+        )
+        kmeans = KMeans(n_clusters=3, random_state=0)
+        cust['cluster'] = kmeans.fit_predict(cust)
 
-# --- Customer Segmentation ---
-st.header("📊 Customer Segmentation")
-if not filtered_df.empty:
-    st.markdown("Segment customers using Recency, Frequency, and Monetary Value (RFM) analysis.")
-    try:
-        rfm_data = filtered_df.groupby('CustID').agg(
-            Recency=('OrderDate', lambda x: (datetime.now().date() - max(x)).days),
-            Frequency=('OrderID', 'count'),
-            MonetaryValue=('ProductPrice', 'sum')
-        ).reset_index()
-
-        # Ensure valid numeric values by explicitly converting columns
-        rfm_data['Recency'] = pd.to_numeric(rfm_data['Recency'], errors='coerce')
-        rfm_data['Frequency'] = pd.to_numeric(rfm_data['Frequency'], errors='coerce')
-        rfm_data['MonetaryValue'] = pd.to_numeric(rfm_data['MonetaryValue'], errors='coerce')
-        rfm_data = rfm_data.dropna(subset=['Recency', 'Frequency', 'MonetaryValue'])
-        rfm_data = rfm_data[(rfm_data['Recency'] >= 0) & 
-                            (rfm_data['Frequency'] >= 0) & 
-                            (rfm_data['MonetaryValue'] >= 0)]
-
-        if not rfm_data.empty:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            sns.scatterplot(
-                x='Recency', y='MonetaryValue', data=rfm_data,
-                hue='Frequency', size='Frequency', ax=ax, palette="viridis"
-            )
-            ax.set_title('RFM Customer Segmentation')
-            st.pyplot(fig)
-        else:
-            st.warning("No valid data available for RFM analysis.")
-    except Exception as e:
-        st.error(f"Error in RFM analysis: {e}")
-else:
-    st.warning("No data available for Customer Segmentation.")
-
-# --- Marketing Channel Performance ---
-st.header("📈 Marketing Channel Performance")
-if not filtered_df.empty:
-    st.markdown("Analyze acquisition sources and conversion rates.")
-    try:
-        acquisition_conversion = filtered_df.groupby('AcquisitionSource')['OrderID'].count() / len(filtered_df)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        acquisition_conversion.plot(kind='bar', ax=ax, color='skyblue')
-        ax.set_title('Conversion Rate per Acquisition Channel')
-        ax.set_xlabel('Acquisition Source')
-        ax.set_ylabel('Conversion Rate')
+        st.subheader("Cluster Pelanggan (KMeans)")
+        fig, ax = plt.subplots()
+        sns.scatterplot(data=cust.reset_index(), x='orders', y='total_value', hue='cluster', palette='deep', ax=ax)
         st.pyplot(fig)
-    except Exception as e:
-        st.error(f"Error in Marketing Channel Performance analysis: {e}")
-else:
-    st.warning("No data available for Marketing Channel Performance.")
+    else:
+        st.warning("Kolom 'customer_id' atau 'order_value' hilang.")
 
-# --- Fraud Detection ---
-st.header("🔍 Fraud Detection")
-if not filtered_df.empty:
-    st.markdown("Analyze patterns in fraudulent orders.")
-    try:
-        fig, ax = plt.subplots(figsize=(8, 6))
-        filtered_df['PaymentMethod'].value_counts().plot(kind='bar', ax=ax, color='skyblue')
-        ax.set_title('Fraudulent Orders by Payment Method')
-        ax.set_xlabel('Payment Method')
-        ax.set_ylabel('Number of Orders')
+
+def page_finance_risk(df: pd.DataFrame):
+    st.header("💰 Analisis Keuangan & Risiko")
+    if 'order_value' in df.columns:
+        total = df['order_value'].sum()
+        st.metric("Total Revenue", f"Rp{total:,.0f}")
+
+    if 'payment_status' in df.columns:
+        fail = df[df['payment_status']!='success'].shape[0]
+        rate = fail/df.shape[0]*100
+        st.metric("Gagal Pembayaran (%)", f"{rate:.2f}%")
+
+    if 'service' in df.columns and 'order_value' in df.columns:
+        svc = df.groupby('service')['order_value'].sum()
+        st.subheader("Pendapatan per Layanan")
+        fig, ax = plt.subplots()
+        svc.plot.pie(autopct='%1.1f%%', ax=ax)
+        ax.set_ylabel('')
         st.pyplot(fig)
-    except Exception as e:
-        st.error(f"Error in Fraud Detection analysis: {e}")
-else:
-    st.warning("No data available for Fraud Detection.")
+    else:
+        st.warning("Kolom 'service' atau 'order_value' tidak tersedia.")
 
-# --- Profit Prediction ---
-st.header("💰 Profit Prediction")
-if models and linear_model and rf_model:
-    st.sidebar.header("Prediction Input")
-    product_cost = st.sidebar.number_input("Product Cost", min_value=0.0, value=10.0)
-    product_price = st.sidebar.number_input("Product Price", min_value=0.0, value=20.0)
-    order_quantity = st.sidebar.number_input("Order Quantity", min_value=1, value=1)
 
-    input_data = pd.DataFrame({
-        'ProductCost': [product_cost],
-        'ProductPrice': [product_price],
-        'OrderQuantity': [order_quantity],
-    })
+def page_strategy_forecast(df: pd.DataFrame):
+    st.header("🔭 Proyeksi Pesanan (Naive)")
+    dates = [c for c in df.columns if 'date' in c.lower()]
+    if not dates or 'order_value' not in df.columns:
+        st.warning("Butuh kolom tanggal dan order_value.")
+        return
+    date_col = dates[0]
+    df_ts = df[[date_col,'order_value']].dropna()
+    df_ts = df_ts.set_index(date_col).resample('M').sum()
 
-    try:
-        linear_prediction = linear_model.predict(input_data)[0]
-        rf_prediction = rf_model.predict(input_data)[0]
+    # Naive forecast: gunakan rata-rata 12 bulan terakhir
+    last_year = df_ts[-12:]['order_value']
+    mean_last_year = last_year.mean()
+    future_index = pd.date_range(df_ts.index.max()+pd.offsets.MonthBegin(), periods=12, freq='M')
+    forecast = pd.Series(mean_last_year, index=future_index)
 
-        st.write("**Profit Prediction Results:**")
-        st.metric(label="Linear Regression Prediction", value=f"${linear_prediction:.2f}")
-        st.metric(label="Random Forest Prediction", value=f"${rf_prediction:.2f}")
-    except Exception as e:
-        st.error(f"Error in Profit Prediction: {e}")
-else:
-    st.warning("Models not loaded. Profit Prediction is unavailable.")
+    combined = pd.concat([df_ts['order_value'], forecast.rename('forecast')], axis=1)
 
-# --- Additional Insights ---
-st.header("📌 Additional Insights")
-if not filtered_df.empty:
-    try:
-        # Seasonal Trends
-        st.subheader("📅 Seasonal Trends")
-        filtered_df['OrderMonth'] = pd.to_datetime(filtered_df['OrderDate']).dt.to_period('M')
-        monthly_sales = filtered_df.groupby('OrderMonth')['OrderID'].count()
-        fig, ax = plt.subplots(figsize=(10, 6))
-        monthly_sales.plot(kind='line', ax=ax, marker='o', color='green')
-        ax.set_title('Monthly Sales Trends')
-        ax.set_xlabel('Month')
-        ax.set_ylabel('Number of Orders')
+    fig, ax = plt.subplots()
+    combined.plot(ax=ax)
+    ax.set_ylabel('Order Value')
+    st.pyplot(fig)
+
+
+def page_model_insights(model, df: pd.DataFrame):
+    st.header("🔍 Feature Importance")
+    if hasattr(model, 'feature_importances_'):
+        imp = pd.Series(model.feature_importances_, index=model.feature_names_in_)
+        fig, ax = plt.subplots()
+        sns.barplot(x=imp.values, y=imp.index, ax=ax)
         st.pyplot(fig)
+    else:
+        st.info("Model tidak memiliki attribute feature_importances_.")
 
-        # Top-Performing Products
-        st.subheader("🏆 Top-Performing Products")
-        top_products = filtered_df.groupby('Product_Name')['OrderID'].count().sort_values(ascending=False).head(10)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        top_products.plot(kind='bar', ax=ax, color='orange')
-        ax.set_title('Top 10 Products by Sales')
-        ax.set_xlabel('Product Name')
-        ax.set_ylabel('Number of Orders')
-        st.pyplot(fig)
 
-        # Customer Loyalty
-        st.subheader("🤝 Customer Loyalty")
-        loyalty_data = filtered_df.groupby('CustID')['OrderID'].count().sort_values(ascending=False).head(10)
-        fig, ax = plt.subplots(figsize=(10, 6))
-        loyalty_data.plot(kind='bar', ax=ax, color='purple')
-        ax.set_title('Top 10 Loyal Customers')
-        ax.set_xlabel('Customer ID')
-        ax.set_ylabel('Number of Orders')
-        st.pyplot(fig)
-    except Exception as e:
-        st.error(f"Error in Additional Insights: {e}")
-else:
-    st.warning("No data available for Additional Insights.")
+def page_about():
+    st.header("ℹ️ Tentang")
+    st.markdown(
+        """
+        **Data:** podha_plants_order.csv  
+        **Model:** model.pkl (pickle)  
+        **Libraries:** streamlit, pandas, numpy, scikit-learn, seaborn, matplotlib  
+        """
+    )
 
-# --- Conclusion ---
-st.markdown("""
-This dashboard provides valuable insights into Podha Plants' order data. By leveraging these insights, stakeholders can make informed decisions to optimize marketing campaigns, increase profitability, and mitigate fraud.
-""")
+# ------------------
+# 3. App Main
+# ------------------
+def main():
+    st.set_page_config(page_title='Podha Plants Analytics', layout='wide')
+    df = load_data()
+    model = load_model()
+
+    pages = {
+        'Marketing Campaigns': page_marketing,
+        'Product & Customer': page_product_customer,
+        'Finance & Risk': page_finance_risk,
+        'Strategy & Forecasting': page_strategy_forecast,
+        'Model Insights': lambda: page_model_insights(model, df),
+        'About': page_about
+    }
+
+    choice = st.sidebar.radio('Pilih Halaman', list(pages.keys()))
+    pages[choice](df) if choice != 'Model Insights' else pages[choice]()
+
+if __name__ == '__main__':
+    main()
