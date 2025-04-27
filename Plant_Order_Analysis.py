@@ -39,16 +39,18 @@ def load_model(path: str = 'model.pkl'):
 
 def page_marketing(df: pd.DataFrame):
     st.header("📈 Analisis Kampanye Pemasaran")
-    req = {'campaign','cost','revenue','order_id'}
-    if not req.issubset(df.columns):
-        st.warning(f"Dataset perlu kolom: {req}.")
+    required = {'campaign', 'cost', 'revenue', 'order_id'}
+    if not required.issubset(df.columns):
+        st.warning(f"Dataset perlu kolom: {', '.join(required)}.")
         return
 
-    summary = df.groupby('campaign').agg(
-        total_cost=('cost','sum'),
-        total_revenue=('revenue','sum'),
-        orders=('order_id','nunique')
-    ).reset_index()
+    summary = (
+        df.groupby('campaign')
+          .agg(total_cost=('cost', 'sum'),
+               total_revenue=('revenue', 'sum'),
+               orders=('order_id', 'nunique'))
+          .reset_index()
+    )
     summary['profit'] = summary['total_revenue'] - summary['total_cost']
     summary['ROI'] = summary['profit'] / summary['total_cost']
 
@@ -56,27 +58,32 @@ def page_marketing(df: pd.DataFrame):
     st.dataframe(summary)
 
     fig, ax = plt.subplots()
-    sns.barplot(data=summary.melt(id_vars='campaign', value_vars=['ROI','orders']),
-                x='campaign', y='value', hue='variable', ax=ax)
+    melted = summary.melt(id_vars='campaign', value_vars=['ROI', 'orders'], var_name='Metric')
+    sns.barplot(data=melted, x='campaign', y='value', hue='Metric', ax=ax)
     ax.set_xticklabels(ax.get_xticklabels(), rotation=45, ha='right')
     st.pyplot(fig)
 
 
 def page_product_customer(df: pd.DataFrame):
     st.header("🛒 Segmentasi Produk & Pelanggan")
+
+    # Top 10 produk
     if 'product' in df.columns:
         top = df['product'].value_counts().nlargest(10)
         st.subheader("Top 10 Produk")
         fig, ax = plt.subplots()
         sns.barplot(x=top.values, y=top.index, ax=ax)
+        ax.set_xlabel('Count')
         st.pyplot(fig)
     else:
-        st.warning("Kolom 'product' tidak ada.")
+        st.warning("Kolom 'product' tidak ditemukan.")
 
-    if {'customer_id','order_value'}.issubset(df.columns):
-        cust = df.groupby('customer_id').agg(
-            orders=('order_id','nunique'),
-            total_value=('order_value','sum')
+    # KMeans clustering pelanggan
+    if {'customer_id', 'order_value'}.issubset(df.columns):
+        cust = (
+            df.groupby('customer_id')
+              .agg(orders=('order_id', 'nunique'),
+                   total_value=('order_value', 'sum'))
         )
         kmeans = KMeans(n_clusters=3, random_state=0)
         cust['cluster'] = kmeans.fit_predict(cust)
@@ -84,6 +91,8 @@ def page_product_customer(df: pd.DataFrame):
         st.subheader("Cluster Pelanggan (KMeans)")
         fig, ax = plt.subplots()
         sns.scatterplot(data=cust.reset_index(), x='orders', y='total_value', hue='cluster', palette='deep', ax=ax)
+        ax.set_xlabel('Jumlah Orders')
+        ax.set_ylabel('Total Nilai Order')
         st.pyplot(fig)
     else:
         st.warning("Kolom 'customer_id' atau 'order_value' hilang.")
@@ -91,16 +100,20 @@ def page_product_customer(df: pd.DataFrame):
 
 def page_finance_risk(df: pd.DataFrame):
     st.header("💰 Analisis Keuangan & Risiko")
+
+    # Total revenue
     if 'order_value' in df.columns:
         total = df['order_value'].sum()
         st.metric("Total Revenue", f"Rp{total:,.0f}")
 
+    # Fail rate pembayaran
     if 'payment_status' in df.columns:
-        fail = df[df['payment_status']!='success'].shape[0]
-        rate = fail/df.shape[0]*100
+        fail = df[df['payment_status'] != 'success'].shape[0]
+        rate = fail / df.shape[0] * 100
         st.metric("Gagal Pembayaran (%)", f"{rate:.2f}%")
 
-    if 'service' in df.columns and 'order_value' in df.columns:
+    # Pie chart pendapatan per layanan
+    if {'service', 'order_value'}.issubset(df.columns):
         svc = df.groupby('service')['order_value'].sum()
         st.subheader("Pendapatan per Layanan")
         fig, ax = plt.subplots()
@@ -111,23 +124,23 @@ def page_finance_risk(df: pd.DataFrame):
         st.warning("Kolom 'service' atau 'order_value' tidak tersedia.")
 
 
-def page_strategy_forecast(df: pd.DataFrame):
-    st.header("🔭 Proyeksi Pesanan (Naive)")
-    dates = [c for c in df.columns if 'date' in c.lower()]
-    if not dates or 'order_value' not in df.columns:
-        st.warning("Butuh kolom tanggal dan order_value.")
+def page_strategy_forecasting(df: pd.DataFrame):
+    st.header("🔭 Proyeksi Pesanan (Naive Average)")
+    date_cols = [c for c in df.columns if 'date' in c.lower()]
+    if not date_cols or 'order_value' not in df.columns:
+        st.warning("Butuh kolom tanggal dan order_value untuk forecasting.")
         return
-    date_col = dates[0]
-    df_ts = df[[date_col,'order_value']].dropna()
-    df_ts = df_ts.set_index(date_col).resample('M').sum()
+    date_col = date_cols[0]
 
-    # Naive forecast: gunakan rata-rata 12 bulan terakhir
-    last_year = df_ts[-12:]['order_value']
-    mean_last_year = last_year.mean()
-    future_index = pd.date_range(df_ts.index.max()+pd.offsets.MonthBegin(), periods=12, freq='M')
-    forecast = pd.Series(mean_last_year, index=future_index)
+    ts = df[[date_col, 'order_value']].dropna()
+    ts = ts.set_index(date_col).resample('M').sum()
 
-    combined = pd.concat([df_ts['order_value'], forecast.rename('forecast')], axis=1)
+    last_year = ts['order_value'].last('12M')
+    mean_val = last_year.mean()
+    future_idx = pd.date_range(start=ts.index.max() + pd.offsets.MonthBegin(), periods=12, freq='M')
+    forecast = pd.Series([mean_val]*12, index=future_idx)
+
+    combined = pd.concat([ts['order_value'], forecast.rename('Forecast')], axis=1)
 
     fig, ax = plt.subplots()
     combined.plot(ax=ax)
@@ -135,7 +148,7 @@ def page_strategy_forecast(df: pd.DataFrame):
     st.pyplot(fig)
 
 
-def page_model_insights(model, df: pd.DataFrame):
+def page_model_insights(model):
     st.header("🔍 Feature Importance")
     if hasattr(model, 'feature_importances_'):
         imp = pd.Series(model.feature_importances_, index=model.feature_names_in_)
@@ -157,8 +170,9 @@ def page_about():
     )
 
 # ------------------
-# 3. App Main
+# 3. Main
 # ------------------
+
 def main():
     st.set_page_config(page_title='Podha Plants Analytics', layout='wide')
     df = load_data()
@@ -168,13 +182,16 @@ def main():
         'Marketing Campaigns': page_marketing,
         'Product & Customer': page_product_customer,
         'Finance & Risk': page_finance_risk,
-        'Strategy & Forecasting': page_strategy_forecast,
-        'Model Insights': lambda: page_model_insights(model, df),
+        'Strategy Forecasting': page_strategy_forecasting,
+        'Model Insights': lambda: page_model_insights(model),
         'About': page_about
     }
 
     choice = st.sidebar.radio('Pilih Halaman', list(pages.keys()))
-    pages[choice](df) if choice != 'Model Insights' else pages[choice]()
+    if choice == 'Model Insights' or choice == 'About':
+        pages[choice]()
+    else:
+        pages[choice](df)
 
 if __name__ == '__main__':
     main()
