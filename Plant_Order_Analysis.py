@@ -2,11 +2,19 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pickle
+import altair as alt
+
+# Page configuration
+st.set_page_config(
+    page_title='Podha Plants Dashboard',
+    layout='wide',
+    initial_sidebar_state='expanded'
+)
 
 # Load data
 @st.cache_data
 def load_data():
-    df = pd.read_csv('podha_plants_order.csv', parse_dates=['OrderDate'], dayfirst=False)
+    df = pd.read_csv('podha_plants_order.csv', parse_dates=['OrderDate'])
     df['ProductPrice'] = pd.to_numeric(df['ProductPrice'], errors='coerce')
     df['ProductCost'] = pd.to_numeric(df['ProductCost'], errors='coerce')
     df['Profit'] = df['ProductPrice'] - df['ProductCost']
@@ -15,70 +23,101 @@ def load_data():
 # Load models
 @st.cache_resource
 def load_models():
-    with open('model.pkl', 'rb') as file:
-        return pickle.load(file)
+    with open('model.pkl', 'rb') as f:
+        return pickle.load(f)
 
-# Load dataset and models
+# Get data and models
 df = load_data()
 models = load_models()
 
-# Sidebar - Filters
-st.sidebar.title('Business Filters')
+# Sidebar filters
+st.sidebar.title('Filters & Forecast')
+# Date range
+min_date, max_date = df['OrderDate'].min(), df['OrderDate'].max()
+start_date, end_date = st.sidebar.date_input(
+    'Order Date Range',
+    value=[min_date, max_date],
+    min_value=min_date,
+    max_value=max_date
+)
+# Region & Source
 regions = ['All'] + sorted(df['Region'].dropna().unique())
 sources = ['All'] + sorted(df['AcquisitionSource'].dropna().unique())
-selected_region = st.sidebar.selectbox('Select Region', regions)
-selected_source = st.sidebar.selectbox('Select Acquisition Source', sources)
+selected_region = st.sidebar.selectbox('Region', regions)
+selected_source = st.sidebar.selectbox('Acquisition Source', sources)
+# Forecast input
+budget_input = st.sidebar.number_input('Budget (USD)', min_value=0.0, value=1000.0, step=100.0)
 
 # Apply filters
+df_filtered = df[
+    (df['OrderDate'] >= pd.to_datetime(start_date)) &
+    (df['OrderDate'] <= pd.to_datetime(end_date))
+]
 if selected_region != 'All':
-    df = df[df['Region'] == selected_region]
+    df_filtered = df_filtered[df_filtered['Region'] == selected_region]
 if selected_source != 'All':
-    df = df[df['AcquisitionSource'] == selected_source]
+    df_filtered = df_filtered[df_filtered['AcquisitionSource'] == selected_source]
 
-# Sidebar - Forecasting input
-st.sidebar.title('Forecasting')
-budget_input = st.sidebar.number_input('Input Budget (USD)', min_value=0.0, value=1000.0, step=100.0)
+# Title and KPIs
+st.title('🌱 Podha Plants Interactive Dashboard')
+k1, k2, k3 = st.columns(3)
+k1.metric('Total Orders', df_filtered.shape[0])
+k2.metric('Total Revenue', f"${df_filtered['ProductPrice'].sum():,.2f}")
+k3.metric('Avg Profit/Order', f"${df_filtered['Profit'].mean():,.2f}")
 
-# Main Title
-st.title('🌱 Podha Plants Interactive Business Dashboard')
+# Time-series revenue chart
+st.subheader('Revenue Over Time')
+revenue_ts = (
+    df_filtered.set_index('OrderDate')
+    .resample('W')['ProductPrice']
+    .sum()
+    .reset_index()
+)
+line = alt.Chart(revenue_ts).mark_line(point=True).encode(
+    x='OrderDate:T',
+    y='ProductPrice:Q',
+    tooltip=['OrderDate:T', alt.Tooltip('ProductPrice:Q', format='$,.2f')]
+).properties(width=800, height=300)
+st.altair_chart(line, use_container_width=True)
 
-# KPI Section with styled metrics
-st.markdown("""<h3 style='text-align: center;'>Key Performance Indicators</h3>""", unsafe_allow_html=True)
-kpi1, kpi2, kpi3 = st.columns(3)
-with kpi1:
-    st.metric(label='📦 Total Orders', value=df.shape[0])
-with kpi2:
-    st.metric(label='💰 Total Revenue', value=f"${df['ProductPrice'].sum():,.2f}")
-with kpi3:
-    st.metric(label='📈 Avg Profit per Order', value=f"${df['Profit'].mean():,.2f}")
+# Download filtered data
+csv = df_filtered.to_csv(index=False)
+st.download_button(
+    label='Download Filtered Data',
+    data=csv,
+    file_name='filtered_podha_orders.csv',
+    mime='text/csv'
+)
 
-# Acquisition Source Analysis
-st.markdown("""<h3 style='text-align: center;'>Acquisition Source Performance</h3>""", unsafe_allow_html=True)
-profit_by_source = df.groupby('AcquisitionSource')['Profit'].mean().sort_values(ascending=False)
-orders_by_source = df['AcquisitionSource'].value_counts()
-st.subheader('Average Profit by Acquisition Source')
-st.bar_chart(profit_by_source)
-st.subheader('Number of Orders by Acquisition Source')
-st.bar_chart(orders_by_source)
+# Tabs for deeper insights
+tab1, tab2, tab3 = st.tabs(['By Acquisition Source', 'Top Products', 'Forecast'])
 
-# Best-Selling Products
-st.markdown("""<h3 style='text-align: center;'>Top 10 Best-Selling Products</h3>""", unsafe_allow_html=True)
-top_products = df.groupby('ProductSKU')['OrderQuantity'].sum().nlargest(10)
-st.bar_chart(top_products)
+with tab1:
+    st.subheader('Profit by Acquisition Source')
+    prof_src = df_filtered.groupby('AcquisitionSource')['Profit'].mean().sort_values()
+    st.bar_chart(prof_src)
+    st.subheader('Order Count by Source')
+    cnt_src = df_filtered['AcquisitionSource'].value_counts()
+    st.bar_chart(cnt_src)
 
-# Forecast Section
-st.markdown("""<h3 style='text-align: center;'>Forecast Based on Budget</h3>""", unsafe_allow_html=True)
-predicted_customers = int(budget_input / 50)
-st.metric('🔮 Estimated New Customers (Simple)', predicted_customers)
+with tab2:
+    st.subheader('Top 10 Products by Quantity')
+    top_prod = df_filtered.groupby('ProductSKU')['OrderQuantity'].sum().nlargest(10)
+    st.bar_chart(top_prod)
 
-# Optionally show models loaded
-if models:
-    st.success('✅ Models successfully loaded (linear_regression and random_forest available).')
-else:
-    st.warning('⚠️ No models loaded.')
-
-st.caption('Note: Forecast is a simplified approximation based on historical budget efficiency.')
+with tab3:
+    st.subheader('Customer Forecasting')
+    # Use loaded models if available
+    if isinstance(models, dict) and 'linear_regression' in models:
+        lr_pred = models['linear_regression'].predict([[budget_input]])[0]
+        st.metric('Linear Regression Estimate', f"{int(lr_pred)} customers")
+    if isinstance(models, dict) and 'random_forest' in models:
+        rf_pred = models['random_forest'].predict([[budget_input]])[0]
+        st.metric('Random Forest Estimate', f"{int(rf_pred)} customers")
+    if not models:
+        simple_pred = int(budget_input / 50)
+        st.metric('Simple Rule Estimate', f"{simple_pred} customers")
 
 # Footer
-st.markdown("""---""")
-st.caption('Dashboard generated automatically based on Podha business data. Powered by Streamlit 🚀')
+st.markdown('---')
+st.caption('Updated dashboard with interactive filters, time-series analysis, and model-based forecasting.')
