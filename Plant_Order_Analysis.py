@@ -7,6 +7,8 @@ import pickle
 @st.cache_data
 def load_data():
     df = pd.read_csv('podha_plants_order.csv', parse_dates=['OrderDate'], dayfirst=False)
+    df['ProductPrice'] = pd.to_numeric(df['ProductPrice'], errors='coerce')
+    df['ProductCost'] = pd.to_numeric(df['ProductCost'], errors='coerce')
     df['Profit'] = df['ProductPrice'] - df['ProductCost']
     return df
 
