@@ -34,9 +34,11 @@ models = load_models()
 # Sidebar filters
 st.sidebar.title('Filters & Forecast')
 
-# Convert pandas Timestamp to Python date for widget compatibility
-min_date = df['OrderDate'].min().date()
-max_date = df['OrderDate'].max().date()
+# Compute min/max dates and convert to Python date
+ts_min = df['OrderDate'].min()
+ts_max = df['OrderDate'].max()
+min_date = pd.to_datetime(ts_min).date()
+max_date = pd.to_datetime(ts_max).date()
 
 # Date range picker
 start_date, end_date = st.sidebar.date_input(
