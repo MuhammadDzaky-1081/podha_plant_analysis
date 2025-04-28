@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import pickle
 import altair as alt
+from datetime import date
 
 # Page configuration
 st.set_page_config(
@@ -32,40 +33,46 @@ models = load_models()
 
 # Sidebar filters
 st.sidebar.title('Filters & Forecast')
-# Date range
-min_date, max_date = df['OrderDate'].min(), df['OrderDate'].max()
+
+# Convert pandas Timestamp to Python date for widget compatibility
+min_date = df['OrderDate'].min().date()
+max_date = df['OrderDate'].max().date()
+
+# Date range picker
 start_date, end_date = st.sidebar.date_input(
     'Order Date Range',
-    value=[min_date, max_date],
+    value=(min_date, max_date),
     min_value=min_date,
     max_value=max_date
 )
-# Region & Source
+
+# Region & Source selectors
 regions = ['All'] + sorted(df['Region'].dropna().unique())
 sources = ['All'] + sorted(df['AcquisitionSource'].dropna().unique())
 selected_region = st.sidebar.selectbox('Region', regions)
 selected_source = st.sidebar.selectbox('Acquisition Source', sources)
+
 # Forecast input
 budget_input = st.sidebar.number_input('Budget (USD)', min_value=0.0, value=1000.0, step=100.0)
 
-# Apply filters
+# Apply filters to DataFrame
 df_filtered = df[
-    (df['OrderDate'] >= pd.to_datetime(start_date)) &
-    (df['OrderDate'] <= pd.to_datetime(end_date))
+    (df['OrderDate'].dt.date >= start_date) &
+    (df['OrderDate'].dt.date <= end_date)
 ]
 if selected_region != 'All':
     df_filtered = df_filtered[df_filtered['Region'] == selected_region]
 if selected_source != 'All':
     df_filtered = df_filtered[df_filtered['AcquisitionSource'] == selected_source]
 
-# Title and KPIs
+# Main dashboard layout
 st.title('🌱 Podha Plants Interactive Dashboard')
-k1, k2, k3 = st.columns(3)
-k1.metric('Total Orders', df_filtered.shape[0])
-k2.metric('Total Revenue', f"${df_filtered['ProductPrice'].sum():,.2f}")
-k3.metric('Avg Profit/Order', f"${df_filtered['Profit'].mean():,.2f}")
+col1, col2, col3 = st.columns(3)
+col1.metric('Total Orders', df_filtered.shape[0])
+col2.metric('Total Revenue', f"${df_filtered['ProductPrice'].sum():,.2f}")
+col3.metric('Avg Profit/Order', f"${df_filtered['Profit'].mean():,.2f}")
 
-# Time-series revenue chart
+# Revenue over time chart
 st.subheader('Revenue Over Time')
 revenue_ts = (
     df_filtered.set_index('OrderDate')
@@ -73,51 +80,50 @@ revenue_ts = (
     .sum()
     .reset_index()
 )
-line = alt.Chart(revenue_ts).mark_line(point=True).encode(
-    x='OrderDate:T',
-    y='ProductPrice:Q',
-    tooltip=['OrderDate:T', alt.Tooltip('ProductPrice:Q', format='$,.2f')]
+chart = alt.Chart(revenue_ts).mark_line(point=True).encode(
+    x=alt.X('OrderDate:T', title='Week'),
+    y=alt.Y('ProductPrice:Q', title='Revenue'),
+    tooltip=[alt.Tooltip('OrderDate:T', title='Date'), alt.Tooltip('ProductPrice:Q', format='$,.2f', title='Revenue')]
 ).properties(width=800, height=300)
-st.altair_chart(line, use_container_width=True)
+st.altair_chart(chart, use_container_width=True)
 
 # Download filtered data
-csv = df_filtered.to_csv(index=False)
+csv_data = df_filtered.to_csv(index=False)
 st.download_button(
     label='Download Filtered Data',
-    data=csv,
+    data=csv_data,
     file_name='filtered_podha_orders.csv',
     mime='text/csv'
 )
 
-# Tabs for deeper insights
-tab1, tab2, tab3 = st.tabs(['By Acquisition Source', 'Top Products', 'Forecast'])
+# Tabs for detailed analysis
+tab1, tab2, tab3 = st.tabs(['Acquisition Source', 'Top Products', 'Forecast'])
 
 with tab1:
     st.subheader('Profit by Acquisition Source')
-    prof_src = df_filtered.groupby('AcquisitionSource')['Profit'].mean().sort_values()
-    st.bar_chart(prof_src)
-    st.subheader('Order Count by Source')
-    cnt_src = df_filtered['AcquisitionSource'].value_counts()
-    st.bar_chart(cnt_src)
+    profit_by_src = df_filtered.groupby('AcquisitionSource')['Profit'].mean().sort_values()
+    st.bar_chart(profit_by_src)
+    st.subheader('Orders by Acquisition Source')
+    orders_by_src = df_filtered['AcquisitionSource'].value_counts()
+    st.bar_chart(orders_by_src)
 
 with tab2:
     st.subheader('Top 10 Products by Quantity')
-    top_prod = df_filtered.groupby('ProductSKU')['OrderQuantity'].sum().nlargest(10)
-    st.bar_chart(top_prod)
+    top_products = df_filtered.groupby('ProductSKU')['OrderQuantity'].sum().nlargest(10)
+    st.bar_chart(top_products)
 
 with tab3:
     st.subheader('Customer Forecasting')
-    # Use loaded models if available
     if isinstance(models, dict) and 'linear_regression' in models:
         lr_pred = models['linear_regression'].predict([[budget_input]])[0]
         st.metric('Linear Regression Estimate', f"{int(lr_pred)} customers")
     if isinstance(models, dict) and 'random_forest' in models:
         rf_pred = models['random_forest'].predict([[budget_input]])[0]
         st.metric('Random Forest Estimate', f"{int(rf_pred)} customers")
-    if not models:
-        simple_pred = int(budget_input / 50)
-        st.metric('Simple Rule Estimate', f"{simple_pred} customers")
+    if not isinstance(models, dict):
+        simple_est = int(budget_input / 50)
+        st.metric('Simple Rule Estimate', f"{simple_est} customers")
 
 # Footer
 st.markdown('---')
-st.caption('Updated dashboard with interactive filters, time-series analysis, and model-based forecasting.')
+st.caption('Interactive dashboard with date filters, Altair charts, and model-based forecasting.')
